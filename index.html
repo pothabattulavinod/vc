@@ -3,162 +3,222 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multi-User Video Chat</title>
+  <title>Video Chat with User Names</title>
   <script src="https://cdn.scaledrone.com/scaledrone.min.js"></script>
   <style>
     body {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: center;
-      background: #f0f0f0;
-      margin: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      grid-gap: 10px;
       height: 100vh;
+      margin: 0;
+      padding: 10px;
       font-family: Arial, sans-serif;
-    }
-    video {
-      width: 45%;
-      margin: 10px;
-      border: 2px solid #000;
-      background: #000;
+      background: #f0f0f0;
     }
     #controls {
-      position: fixed;
-      bottom: 10px;
-      width: 100%;
-      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
     }
-    button {
-      margin: 5px;
-      padding: 10px 20px;
+    #video-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-gap: 10px;
+      align-items: start;
+    }
+    video {
+      width: 100%;
+      height: auto;
+      background: #000;
+      border: 2px solid #333;
+    }
+    .video-container {
+      position: relative;
+    }
+    .name-label {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      padding: 5px 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 14px;
+      border-radius: 3px;
+    }
+    #nameForm {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+    button, input {
+      padding: 10px;
       font-size: 16px;
-      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <video id="localVideo" autoplay muted></video>
-  <video id="remoteVideo1" autoplay></video>
-  <video id="remoteVideo2" autoplay></video>
-  <video id="remoteVideo3" autoplay></video>
+  <div id="nameForm">
+    <input id="userName" type="text" placeholder="Enter your name" />
+    <button id="joinButton">Join Room</button>
+  </div>
 
-  <div id="controls">
+  <div id="controls" style="display: none;">
     <button id="muteButton">Mute Audio</button>
     <button id="videoButton">Stop Video</button>
   </div>
 
-  <script>
-    // Generate a random room name if not already present
-    if (!location.hash) {
-      location.hash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
-    }
-    const roomHash = location.hash.substring(1);
+  <div id="video-grid" style="display: none;">
+    <div class="video-container">
+      <video id="localVideo" autoplay muted></video>
+      <div class="name-label" id="localNameLabel"></div>
+    </div>
+    <div class="video-container">
+      <video id="remoteVideo1" autoplay></video>
+      <div class="name-label" id="remoteName1"></div>
+    </div>
+    <div class="video-container">
+      <video id="remoteVideo2" autoplay></video>
+      <div class="name-label" id="remoteName2"></div>
+    </div>
+    <div class="video-container">
+      <video id="remoteVideo3" autoplay></video>
+      <div class="name-label" id="remoteName3"></div>
+    </div>
+  </div>
 
-    const drone = new ScaleDrone('TXHvXiAPKsq0vQ7U'); // Replace with your Scaledrone Channel ID
-    const roomName = 'observable-' + roomHash;
+  <script>
+    let userName;
+    const peers = {};
+    const videoElements = {
+      local: {
+        video: document.getElementById('localVideo'),
+        nameLabel: document.getElementById('localNameLabel'),
+      },
+      remote: [
+        {
+          video: document.getElementById('remoteVideo1'),
+          nameLabel: document.getElementById('remoteName1'),
+        },
+        {
+          video: document.getElementById('remoteVideo2'),
+          nameLabel: document.getElementById('remoteName2'),
+        },
+        {
+          video: document.getElementById('remoteVideo3'),
+          nameLabel: document.getElementById('remoteName3'),
+        },
+      ],
+    };
+
+    // Initialize Scaledrone
+    const drone = new ScaleDrone('YOUR_CHANNEL_ID'); // Replace with your Scaledrone Channel ID
+    const roomName = 'observable-' + (location.hash || Math.random().toString(16).substring(2));
+
     const configuration = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     };
 
-    const videoElements = {
-      local: document.getElementById('localVideo'),
-      remote: [
-        document.getElementById('remoteVideo1'),
-        document.getElementById('remoteVideo2'),
-        document.getElementById('remoteVideo3'),
-      ],
-    };
-
     let localStream;
-    const peers = {};
 
-    function onError(error) {
-      console.error(error);
-    }
+    document.getElementById('joinButton').addEventListener('click', () => {
+      userName = document.getElementById('userName').value.trim();
+      if (!userName) {
+        alert('Please enter a name to join the room.');
+        return;
+      }
+      document.getElementById('nameForm').style.display = 'none';
+      document.getElementById('controls').style.display = 'flex';
+      document.getElementById('video-grid').style.display = 'grid';
 
-    function sendMessage(message) {
-      drone.publish({
-        room: roomName,
-        message,
-      });
-    }
-
-    drone.on('open', (error) => {
-      if (error) return console.error(error);
-
-      const room = drone.subscribe(roomName);
-      room.on('open', (error) => {
-        if (error) onError(error);
-      });
-
-      room.on('members', (members) => {
-        console.log('MEMBERS:', members);
-        startLocalStream();
-
-        // Create connections with existing members
-        members.forEach((member) => {
-          if (member.id !== drone.clientId) {
-            createPeerConnection(member.id, true);
-          }
-        });
-      });
-
-      room.on('member_join', (member) => {
-        console.log('New member joined:', member.id);
-        createPeerConnection(member.id, true);
-      });
-
-      room.on('member_leave', (member) => {
-        console.log('Member left:', member.id);
-        if (peers[member.id]) {
-          peers[member.id].close();
-          delete peers[member.id];
-        }
-      });
-
-      room.on('data', (message, client) => {
-        if (client.id === drone.clientId) return;
-        handleSignalingMessage(client.id, message);
-      });
+      startLocalStream();
+      joinRoom();
     });
 
     function startLocalStream() {
       navigator.mediaDevices
         .getUserMedia({ video: true, audio: true })
-        .then((stream) => {
+        .then(stream => {
           localStream = stream;
-          videoElements.local.srcObject = stream;
+          videoElements.local.video.srcObject = stream;
+          videoElements.local.nameLabel.innerText = userName;
         })
-        .catch(onError);
+        .catch(console.error);
     }
 
-    function createPeerConnection(peerId, isInitiator) {
+    function joinRoom() {
+      drone.on('open', error => {
+        if (error) return console.error('Drone error:', error);
+
+        const room = drone.subscribe(roomName);
+
+        room.on('open', error => {
+          if (error) return console.error('Room error:', error);
+        });
+
+        room.on('members', members => {
+          console.log('Members:', members);
+          members
+            .filter(member => member.id !== drone.clientId)
+            .forEach(member => createPeerConnection(member.id, true));
+        });
+
+        room.on('member_join', member => {
+          console.log('Member joined:', member);
+          createPeerConnection(member.id, true);
+        });
+
+        room.on('member_leave', member => {
+          console.log('Member left:', member.id);
+          if (peers[member.id]) {
+            peers[member.id].close();
+            delete peers[member.id];
+          }
+        });
+
+        room.on('data', (message, client) => {
+          if (client.id === drone.clientId) return;
+          handleSignalingMessage(client.id, message);
+        });
+      });
+    }
+
+    function createPeerConnection(peerId, isOfferer) {
       const peerConnection = new RTCPeerConnection(configuration);
       peers[peerId] = peerConnection;
 
-      peerConnection.onicecandidate = (event) => {
+      peerConnection.onicecandidate = event => {
         if (event.candidate) {
-          sendMessage({ to: peerId, candidate: event.candidate });
+          drone.publish({
+            room: roomName,
+            message: { to: peerId, candidate: event.candidate },
+          });
         }
       };
 
-      peerConnection.ontrack = (event) => {
-        console.log('Received remote stream from:', peerId);
-        assignStreamToVideo(event.streams[0]);
+      peerConnection.ontrack = event => {
+        const videoBox = assignStreamToVideo(event.streams[0]);
+        if (videoBox) {
+          videoBox.nameLabel.innerText = event.streams[0].id || 'Remote User';
+        }
       };
 
-      localStream.getTracks().forEach((track) => {
+      localStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, localStream);
       });
 
-      if (isInitiator) {
+      if (isOfferer) {
         peerConnection
           .createOffer()
-          .then((offer) => peerConnection.setLocalDescription(offer))
+          .then(desc => peerConnection.setLocalDescription(desc))
           .then(() => {
-            sendMessage({ to: peerId, sdp: peerConnection.localDescription });
-          })
-          .catch(onError);
+            drone.publish({
+              room: roomName,
+              message: { to: peerId, sdp: peerConnection.localDescription },
+            });
+          });
       }
     }
 
@@ -167,47 +227,34 @@
       if (!peerConnection) return;
 
       if (message.sdp) {
-        const desc = new RTCSessionDescription(message.sdp);
         peerConnection
-          .setRemoteDescription(desc)
+          .setRemoteDescription(new RTCSessionDescription(message.sdp))
           .then(() => {
-            if (desc.type === 'offer') {
+            if (message.sdp.type === 'offer') {
               return peerConnection.createAnswer();
             }
           })
-          .then((answer) => peerConnection.setLocalDescription(answer))
+          .then(answer => peerConnection.setLocalDescription(answer))
           .then(() => {
-            sendMessage({ to: peerId, sdp: peerConnection.localDescription });
-          })
-          .catch(onError);
+            drone.publish({
+              room: roomName,
+              message: { to: peerId, sdp: peerConnection.localDescription },
+            });
+          });
       } else if (message.candidate) {
-        peerConnection
-          .addIceCandidate(new RTCIceCandidate(message.candidate))
-          .catch(onError);
+        peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate)).catch(console.error);
       }
     }
 
     function assignStreamToVideo(stream) {
-      for (let video of videoElements.remote) {
-        if (!video.srcObject) {
-          video.srcObject = stream;
-          break;
+      for (let videoBox of videoElements.remote) {
+        if (!videoBox.video.srcObject) {
+          videoBox.video.srcObject = stream;
+          return videoBox;
         }
       }
+      return null;
     }
-
-    // Controls
-    document.getElementById('muteButton').addEventListener('click', () => {
-      const audioTrack = localStream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      document.getElementById('muteButton').innerText = audioTrack.enabled ? 'Mute Audio' : 'Unmute Audio';
-    });
-
-    document.getElementById('videoButton').addEventListener('click', () => {
-      const videoTrack = localStream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-      document.getElementById('videoButton').innerText = videoTrack.enabled ? 'Stop Video' : 'Start Video';
-    });
   </script>
 </body>
 </html>
