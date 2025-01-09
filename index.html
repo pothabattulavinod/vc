@@ -1,201 +1,176 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="https://cdn.scaledrone.com/scaledrone.min.js"></script>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-User Video Chat</title>
+  <script src="https://cdn.scaledrone.com/scaledrone.min.js"></script>
   <style>
     body {
-      background: #0098ff;
       display: flex;
-      flex-direction: column;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      background: #f0f0f0;
       margin: 0;
+      height: 100vh;
       font-family: Arial, sans-serif;
-      color: white;
-    }
-    #videos {
-      display: grid;
-      grid-template-columns: repeat(2, 200px);
-      grid-gap: 10px;
-      margin-bottom: 20px;
     }
     video {
-      width: 200px;
-      height: 150px;
-      background: black;
-      border: 2px solid white;
-      border-radius: 5px;
+      width: 45%;
+      margin: 10px;
+      border: 2px solid #000;
+      background: #000;
     }
     #controls {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
+      position: fixed;
+      bottom: 10px;
+      width: 100%;
+      text-align: center;
     }
     button {
+      margin: 5px;
       padding: 10px 20px;
       font-size: 16px;
-      border: none;
-      border-radius: 5px;
       cursor: pointer;
-    }
-    button:hover {
-      background-color: #005bb5;
-    }
-    #videoPlayer {
-      width: 320px;
-      height: 240px;
-      margin-top: 20px;
-      background: black;
-      border: 2px solid white;
-      border-radius: 5px;
     }
   </style>
 </head>
 <body>
-  <h1>Video Call with Multiple Users</h1>
-  
-  <!-- Placeholder divs for up to 4 video streams -->
-  <div id="videos">
-    <video id="video1" autoplay></video>
-    <video id="video2" autoplay></video>
-    <video id="video3" autoplay></video>
-    <video id="video4" autoplay></video>
-  </div> <!-- Video call participants (up to 4 users) -->
-  
+  <video id="localVideo" autoplay muted></video>
+  <video id="remoteVideo1" autoplay></video>
+  <video id="remoteVideo2" autoplay></video>
+  <video id="remoteVideo3" autoplay></video>
+
   <div id="controls">
-    <button id="muteButton">Mute</button>
+    <button id="muteButton">Mute Audio</button>
     <button id="videoButton">Stop Video</button>
-    <button id="turnOffVideoButton">Turn Video Off</button>
   </div>
-  
-  <!-- Video Player to watch a video -->
-  <video id="videoPlayer" controls>
-    <source src="your-video-url.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
 
   <script>
-    // Generate random room name if needed
+    // Generate a random room name if not already present
     if (!location.hash) {
       location.hash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
     }
     const roomHash = location.hash.substring(1);
 
-    const drone = new ScaleDrone("TXHvXiAPKsq0vQ7U"); // Your provided channel ID
-    const roomName = "observable-" + roomHash;
+    // Replace with your own Scaledrone Channel ID
+    const drone = new ScaleDrone('TXHvXiAPKsq0vQ7U');
+    const roomName = 'observable-' + roomHash;
     const configuration = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     };
     let room;
     let pc;
+    const videoElements = {
+      local: document.getElementById('localVideo'),
+      remote: [
+        document.getElementById('remoteVideo1'),
+        document.getElementById('remoteVideo2'),
+        document.getElementById('remoteVideo3'),
+      ],
+    };
     let localStream;
-    const remoteStreams = {}; // Store all remote streams
-    const videosContainer = document.getElementById("videos");
-    const muteButton = document.getElementById("muteButton");
-    const videoButton = document.getElementById("videoButton");
-    const turnOffVideoButton = document.getElementById("turnOffVideoButton");
 
-    drone.on("open", (error) => {
+    function onSuccess() {}
+    function onError(error) {
+      console.error(error);
+    }
+
+    // Handle Scaledrone connection
+    drone.on('open', (error) => {
       if (error) return console.error(error);
-
       room = drone.subscribe(roomName);
-      room.on("open", (error) => {
-        if (error) console.error(error);
+      room.on('open', (error) => {
+        if (error) onError(error);
       });
-
-      room.on("members", (members) => {
-        console.log('Members:', members);
+      room.on('members', (members) => {
+        console.log('MEMBERS', members);
         startWebRTC(members.length === 2);
       });
     });
 
-    function sendMessage(message) {
-      drone.publish({ room: roomName, message });
-    }
-
     function startWebRTC(isOfferer) {
       pc = new RTCPeerConnection(configuration);
 
+      // Send ICE candidates to other peers
       pc.onicecandidate = (event) => {
-        if (event.candidate) sendMessage({ candidate: event.candidate });
+        if (event.candidate) {
+          sendMessage({ candidate: event.candidate });
+        }
       };
 
+      // Handle incoming streams
       pc.ontrack = (event) => {
         const stream = event.streams[0];
-        console.log('New stream:', stream);
-        
-        // Add the remote stream to remoteStreams object
-        remoteStreams[stream.id] = stream;
+        console.log('Received remote stream:', stream);
 
-        // Find the first empty video slot
-        for (let i = 1; i <= 4; i++) {
-          const videoElement = document.getElementById("video" + i);
-          if (videoElement && videoElement.srcObject === null) {
-            videoElement.srcObject = stream;
+        // Assign stream to first available video element
+        for (let video of videoElements.remote) {
+          if (!video.srcObject) {
+            video.srcObject = stream;
             break;
           }
         }
       };
 
+      // Add local stream to connection
       navigator.mediaDevices
         .getUserMedia({ video: true, audio: true })
         .then((stream) => {
           localStream = stream;
-
-          const localVideo = document.getElementById("video1");
-          localVideo.srcObject = stream;
-
-          // Add the local video stream to the peer connection
+          videoElements.local.srcObject = stream;
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-        });
+        })
+        .catch(onError);
 
-      if (isOfferer) {
-        pc.onnegotiationneeded = () => {
-          pc.createOffer().then(setLocalDesc).catch(console.error);
-        };
-      }
-
-      room.on("data", (message, client) => {
+      // Listen for messages from other peers
+      room.on('data', (message, client) => {
         if (client.id === drone.clientId) return;
 
         if (message.sdp) {
-          pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
-          if (pc.remoteDescription.type === "offer") {
-            pc.createAnswer().then(setLocalDesc).catch(console.error);
-          }
+          pc.setRemoteDescription(new RTCSessionDescription(message.sdp), () => {
+            if (pc.remoteDescription.type === 'offer') {
+              pc.createAnswer().then(localDescCreated).catch(onError);
+            }
+          }, onError);
         } else if (message.candidate) {
-          pc.addIceCandidate(new RTCIceCandidate(message.candidate));
+          pc.addIceCandidate(new RTCIceCandidate(message.candidate), onSuccess, onError);
         }
+      });
+
+      if (isOfferer) {
+        pc.onnegotiationneeded = () => {
+          pc.createOffer().then(localDescCreated).catch(onError);
+        };
+      }
+    }
+
+    function localDescCreated(desc) {
+      pc.setLocalDescription(desc, () => {
+        sendMessage({ sdp: pc.localDescription });
+      }, onError);
+    }
+
+    function sendMessage(message) {
+      drone.publish({
+        room: roomName,
+        message,
       });
     }
 
-    function setLocalDesc(desc) {
-      pc.setLocalDescription(desc);
-      sendMessage({ sdp: pc.localDescription });
-    }
-
     // Mute/Unmute Audio
-    muteButton.addEventListener("click", () => {
+    document.getElementById('muteButton').addEventListener('click', () => {
       const audioTrack = localStream.getAudioTracks()[0];
       audioTrack.enabled = !audioTrack.enabled;
-      muteButton.textContent = audioTrack.enabled ? "Mute" : "Unmute";
+      document.getElementById('muteButton').innerText = audioTrack.enabled ? 'Mute Audio' : 'Unmute Audio';
     });
 
-    // Stop/Resume Video
-    videoButton.addEventListener("click", () => {
+    // Stop/Start Video
+    document.getElementById('videoButton').addEventListener('click', () => {
       const videoTrack = localStream.getVideoTracks()[0];
       videoTrack.enabled = !videoTrack.enabled;
-      videoButton.textContent = videoTrack.enabled ? "Stop Video" : "Resume Video";
-    });
-
-    // Turn Off Video
-    turnOffVideoButton.addEventListener("click", () => {
-      const videoTrack = localStream.getVideoTracks()[0];
-      videoTrack.enabled = false;
-      turnOffVideoButton.textContent = "Video Off";
+      document.getElementById('videoButton').innerText = videoTrack.enabled ? 'Stop Video' : 'Start Video';
     });
   </script>
 </body>
