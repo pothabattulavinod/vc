@@ -1,42 +1,201 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <script src='https://cdn.scaledrone.com/scaledrone.min.js'></script>
+  <script src="https://cdn.scaledrone.com/scaledrone.min.js"></script>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       background: #0098ff;
       display: flex;
-      height: 100vh;
-      margin: 0;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 0 50px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      height: 100vh;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+    #videos {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
     }
     video {
-      max-width: calc(50% - 100px);
-      margin: 0 50px;
-      box-sizing: border-box;
-      border-radius: 2px;
-      padding: 0;
-      background: white;
+      width: 200px;
+      height: 150px;
+      background: black;
+      border: 2px solid white;
+      border-radius: 5px;
     }
-    .copy {
-      position: fixed;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
+    #controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 10px 20px;
       font-size: 16px;
-      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005bb5;
+    }
+    #videoPlayer {
+      width: 320px;
+      height: 240px;
+      margin-top: 20px;
+      background: black;
+      border: 2px solid white;
+      border-radius: 5px;
     }
   </style>
 </head>
 <body>
-  <div class="copy">Send your URL to a friend to start a video call</div>
-  <video id="localVideo" autoplay muted></video>
-  <video id="remoteVideo" autoplay></video>
+  <h1>Video Call & Watch Video</h1>
   
-  <script src="script.js"></script>
+  <div id="videos"></div> <!-- For video call participants -->
+  <div id="controls">
+    <button id="muteButton">Mute</button>
+    <button id="videoButton">Stop Video</button>
+    <button id="turnOffVideoButton">Turn Video Off</button>
+  </div>
+  
+  <!-- Video Player to watch a video -->
+  <video id="videoPlayer" controls>
+    <source src="your-video-url.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+
+  <script>
+    // Generate random room name if needed
+    if (!location.hash) {
+      location.hash = Math.floor(Math.random() * 0xFFFFFF).toString(16);
+    }
+    const roomHash = location.hash.substring(1);
+
+    const drone = new ScaleDrone("TXHvXiAPKsq0vQ7U"); // Your provided channel ID
+    const roomName = "observable-" + roomHash;
+    const configuration = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    };
+    let room;
+    let pc;
+    let localStream;
+    const remoteStreams = {};
+    const videosContainer = document.getElementById("videos");
+    const muteButton = document.getElementById("muteButton");
+    const videoButton = document.getElementById("videoButton");
+    const turnOffVideoButton = document.getElementById("turnOffVideoButton");
+
+    drone.on("open", (error) => {
+      if (error) return console.error(error);
+
+      room = drone.subscribe(roomName);
+      room.on("open", (error) => {
+        if (error) console.error(error);
+      });
+
+      room.on("members", (members) => {
+        const isOfferer = members.length === 2;
+        startWebRTC(isOfferer);
+      });
+    });
+
+    function sendMessage(message) {
+      drone.publish({ room: roomName, message });
+    }
+
+    function startWebRTC(isOfferer) {
+      pc = new RTCPeerConnection(configuration);
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) sendMessage({ candidate: event.candidate });
+      };
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0];
+        if (!remoteStreams[stream.id]) {
+          remoteStreams[stream.id] = stream;
+          const videoElement = document.createElement("video");
+          videoElement.srcObject = stream;
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.style.width = "200px";
+          videoElement.style.height = "150px";
+          videoElement.style.border = "2px solid white";
+          videoElement.style.borderRadius = "5px";
+          videosContainer.appendChild(videoElement);
+        }
+      };
+
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          localStream = stream;
+
+          const localVideo = document.createElement("video");
+          localVideo.srcObject = stream;
+          localVideo.autoplay = true;
+          localVideo.muted = true;
+          localVideo.style.width = "200px";
+          localVideo.style.height = "150px";
+          localVideo.style.border = "2px solid white";
+          localVideo.style.borderRadius = "5px";
+          videosContainer.appendChild(localVideo);
+
+          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        });
+
+      if (isOfferer) {
+        pc.onnegotiationneeded = () => {
+          pc.createOffer().then(setLocalDesc).catch(console.error);
+        };
+      }
+
+      room.on("data", (message, client) => {
+        if (client.id === drone.clientId) return;
+
+        if (message.sdp) {
+          pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
+          if (pc.remoteDescription.type === "offer") {
+            pc.createAnswer().then(setLocalDesc).catch(console.error);
+          }
+        } else if (message.candidate) {
+          pc.addIceCandidate(new RTCIceCandidate(message.candidate));
+        }
+      });
+    }
+
+    function setLocalDesc(desc) {
+      pc.setLocalDescription(desc);
+      sendMessage({ sdp: pc.localDescription });
+    }
+
+    // Mute/Unmute Audio
+    muteButton.addEventListener("click", () => {
+      const audioTrack = localStream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled;
+      muteButton.textContent = audioTrack.enabled ? "Mute" : "Unmute";
+    });
+
+    // Stop/Resume Video
+    videoButton.addEventListener("click", () => {
+      const videoTrack = localStream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled;
+      videoButton.textContent = videoTrack.enabled ? "Stop Video" : "Resume Video";
+    });
+
+    // Turn Off Video
+    turnOffVideoButton.addEventListener("click", () => {
+      const videoTrack = localStream.getVideoTracks()[0];
+      videoTrack.enabled = false;
+      turnOffVideoButton.textContent = "Video Off";
+    });
+  </script>
 </body>
 </html>
