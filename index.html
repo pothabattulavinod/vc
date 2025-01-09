@@ -107,8 +107,8 @@
       });
 
       room.on("members", (members) => {
-        const isOfferer = members.length === 2;
-        startWebRTC(isOfferer);
+        console.log('Members:', members);
+        startWebRTC(members.length === 2);
       });
     });
 
@@ -125,16 +125,17 @@
 
       pc.ontrack = (event) => {
         const stream = event.streams[0];
-        if (!remoteStreams[stream.id] && Object.keys(remoteStreams).length < 4) {
-          remoteStreams[stream.id] = stream;
-
-          // Find the first empty video slot
-          for (let i = 1; i <= 4; i++) {
-            const videoElement = document.getElementById("video" + i);
-            if (videoElement && videoElement.srcObject === null) {
-              videoElement.srcObject = stream;
-              break;
-            }
+        console.log('New stream:', stream);
+        
+        // Add the remote stream to remoteStreams object
+        remoteStreams[stream.id] = stream;
+        
+        // Find the first empty video slot
+        for (let i = 1; i <= 4; i++) {
+          const videoElement = document.getElementById("video" + i);
+          if (videoElement && videoElement.srcObject === null) {
+            videoElement.srcObject = stream;
+            break;
           }
         }
       };
