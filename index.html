@@ -121,6 +121,8 @@
         const stream = event.streams[0];
         if (!remoteStreams[stream.id]) {
           remoteStreams[stream.id] = stream;
+
+          // Create a video element for each remote participant
           const videoElement = document.createElement("video");
           videoElement.srcObject = stream;
           videoElement.autoplay = true;
@@ -148,6 +150,7 @@
           localVideo.style.borderRadius = "5px";
           videosContainer.appendChild(localVideo);
 
+          // Add the local video stream to the peer connection
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
         });
 
