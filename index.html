@@ -17,10 +17,9 @@
       color: white;
     }
     #videos {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: repeat(2, 200px);
+      grid-gap: 10px;
       margin-bottom: 20px;
     }
     video {
@@ -56,9 +55,16 @@
   </style>
 </head>
 <body>
-  <h1>Video Call & Watch Video</h1>
+  <h1>Video Call with Multiple Users</h1>
   
-  <div id="videos"></div> <!-- For video call participants -->
+  <!-- Placeholder divs for up to 4 video streams -->
+  <div id="videos">
+    <video id="video1" autoplay></video>
+    <video id="video2" autoplay></video>
+    <video id="video3" autoplay></video>
+    <video id="video4" autoplay></video>
+  </div> <!-- Video call participants (up to 4 users) -->
+  
   <div id="controls">
     <button id="muteButton">Mute</button>
     <button id="videoButton">Stop Video</button>
@@ -119,19 +125,17 @@
 
       pc.ontrack = (event) => {
         const stream = event.streams[0];
-        if (!remoteStreams[stream.id]) {
+        if (!remoteStreams[stream.id] && Object.keys(remoteStreams).length < 4) {
           remoteStreams[stream.id] = stream;
 
-          // Create a video element for each remote participant
-          const videoElement = document.createElement("video");
-          videoElement.srcObject = stream;
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.style.width = "200px";
-          videoElement.style.height = "150px";
-          videoElement.style.border = "2px solid white";
-          videoElement.style.borderRadius = "5px";
-          videosContainer.appendChild(videoElement);
+          // Find the first empty video slot
+          for (let i = 1; i <= 4; i++) {
+            const videoElement = document.getElementById("video" + i);
+            if (videoElement && videoElement.srcObject === null) {
+              videoElement.srcObject = stream;
+              break;
+            }
+          }
         }
       };
 
@@ -140,15 +144,8 @@
         .then((stream) => {
           localStream = stream;
 
-          const localVideo = document.createElement("video");
+          const localVideo = document.getElementById("video1");
           localVideo.srcObject = stream;
-          localVideo.autoplay = true;
-          localVideo.muted = true;
-          localVideo.style.width = "200px";
-          localVideo.style.height = "150px";
-          localVideo.style.border = "2px solid white";
-          localVideo.style.borderRadius = "5px";
-          videosContainer.appendChild(localVideo);
 
           // Add the local video stream to the peer connection
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
