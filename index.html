@@ -54,14 +54,12 @@
     }
     const roomHash = location.hash.substring(1);
 
-    // Replace with your own Scaledrone Channel ID
-    const drone = new ScaleDrone('TXHvXiAPKsq0vQ7U');
+    const drone = new ScaleDrone('TXHvXiAPKsq0vQ7U'); // Replace with your Scaledrone Channel ID
     const roomName = 'observable-' + roomHash;
     const configuration = {
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     };
-    let room;
-    let pc;
+
     const videoElements = {
       local: document.getElementById('localVideo'),
       remote: [
@@ -70,86 +68,12 @@
         document.getElementById('remoteVideo3'),
       ],
     };
-    let localStream;
 
-    function onSuccess() {}
+    let localStream;
+    const peers = {};
+
     function onError(error) {
       console.error(error);
-    }
-
-    // Handle Scaledrone connection
-    drone.on('open', (error) => {
-      if (error) return console.error(error);
-      room = drone.subscribe(roomName);
-      room.on('open', (error) => {
-        if (error) onError(error);
-      });
-      room.on('members', (members) => {
-        console.log('MEMBERS', members);
-        startWebRTC(members.length === 2);
-      });
-    });
-
-    function startWebRTC(isOfferer) {
-      pc = new RTCPeerConnection(configuration);
-
-      // Send ICE candidates to other peers
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          sendMessage({ candidate: event.candidate });
-        }
-      };
-
-      // Handle incoming streams
-      pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        console.log('Received remote stream:', stream);
-
-        // Assign stream to first available video element
-        for (let video of videoElements.remote) {
-          if (!video.srcObject) {
-            video.srcObject = stream;
-            break;
-          }
-        }
-      };
-
-      // Add local stream to connection
-      navigator.mediaDevices
-        .getUserMedia({ video: true, audio: true })
-        .then((stream) => {
-          localStream = stream;
-          videoElements.local.srcObject = stream;
-          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-        })
-        .catch(onError);
-
-      // Listen for messages from other peers
-      room.on('data', (message, client) => {
-        if (client.id === drone.clientId) return;
-
-        if (message.sdp) {
-          pc.setRemoteDescription(new RTCSessionDescription(message.sdp), () => {
-            if (pc.remoteDescription.type === 'offer') {
-              pc.createAnswer().then(localDescCreated).catch(onError);
-            }
-          }, onError);
-        } else if (message.candidate) {
-          pc.addIceCandidate(new RTCIceCandidate(message.candidate), onSuccess, onError);
-        }
-      });
-
-      if (isOfferer) {
-        pc.onnegotiationneeded = () => {
-          pc.createOffer().then(localDescCreated).catch(onError);
-        };
-      }
-    }
-
-    function localDescCreated(desc) {
-      pc.setLocalDescription(desc, () => {
-        sendMessage({ sdp: pc.localDescription });
-      }, onError);
     }
 
     function sendMessage(message) {
@@ -159,14 +83,126 @@
       });
     }
 
-    // Mute/Unmute Audio
+    drone.on('open', (error) => {
+      if (error) return console.error(error);
+
+      const room = drone.subscribe(roomName);
+      room.on('open', (error) => {
+        if (error) onError(error);
+      });
+
+      room.on('members', (members) => {
+        console.log('MEMBERS:', members);
+        startLocalStream();
+
+        // Create connections with existing members
+        members.forEach((member) => {
+          if (member.id !== drone.clientId) {
+            createPeerConnection(member.id, true);
+          }
+        });
+      });
+
+      room.on('member_join', (member) => {
+        console.log('New member joined:', member.id);
+        createPeerConnection(member.id, true);
+      });
+
+      room.on('member_leave', (member) => {
+        console.log('Member left:', member.id);
+        if (peers[member.id]) {
+          peers[member.id].close();
+          delete peers[member.id];
+        }
+      });
+
+      room.on('data', (message, client) => {
+        if (client.id === drone.clientId) return;
+        handleSignalingMessage(client.id, message);
+      });
+    });
+
+    function startLocalStream() {
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          localStream = stream;
+          videoElements.local.srcObject = stream;
+        })
+        .catch(onError);
+    }
+
+    function createPeerConnection(peerId, isInitiator) {
+      const peerConnection = new RTCPeerConnection(configuration);
+      peers[peerId] = peerConnection;
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendMessage({ to: peerId, candidate: event.candidate });
+        }
+      };
+
+      peerConnection.ontrack = (event) => {
+        console.log('Received remote stream from:', peerId);
+        assignStreamToVideo(event.streams[0]);
+      };
+
+      localStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, localStream);
+      });
+
+      if (isInitiator) {
+        peerConnection
+          .createOffer()
+          .then((offer) => peerConnection.setLocalDescription(offer))
+          .then(() => {
+            sendMessage({ to: peerId, sdp: peerConnection.localDescription });
+          })
+          .catch(onError);
+      }
+    }
+
+    function handleSignalingMessage(peerId, message) {
+      const peerConnection = peers[peerId];
+      if (!peerConnection) return;
+
+      if (message.sdp) {
+        const desc = new RTCSessionDescription(message.sdp);
+        peerConnection
+          .setRemoteDescription(desc)
+          .then(() => {
+            if (desc.type === 'offer') {
+              return peerConnection.createAnswer();
+            }
+          })
+          .then((answer) => peerConnection.setLocalDescription(answer))
+          .then(() => {
+            sendMessage({ to: peerId, sdp: peerConnection.localDescription });
+          })
+          .catch(onError);
+      } else if (message.candidate) {
+        peerConnection
+          .addIceCandidate(new RTCIceCandidate(message.candidate))
+          .catch(onError);
+      }
+    }
+
+    function assignStreamToVideo(stream) {
+      for (let video of videoElements.remote) {
+        if (!video.srcObject) {
+          video.srcObject = stream;
+          break;
+        }
+      }
+    }
+
+    // Controls
     document.getElementById('muteButton').addEventListener('click', () => {
       const audioTrack = localStream.getAudioTracks()[0];
       audioTrack.enabled = !audioTrack.enabled;
       document.getElementById('muteButton').innerText = audioTrack.enabled ? 'Mute Audio' : 'Unmute Audio';
     });
 
-    // Stop/Start Video
     document.getElementById('videoButton').addEventListener('click', () => {
       const videoTrack = localStream.getVideoTracks()[0];
       videoTrack.enabled = !videoTrack.enabled;
