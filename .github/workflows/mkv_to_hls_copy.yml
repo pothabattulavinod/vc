@@ -63,5 +63,5 @@ jobs:
           fi
 
           git remote remove origin
-          git remote add origin https://x-access-token:${GH_PAT}@github.com/pothabattulavinod/mer.git
+          git remote add origin https://x-access-token:${GH_PAT}@github.com/pothabattulavinod/vc.git
           git push origin HEAD:main
