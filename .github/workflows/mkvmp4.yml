@@ -1,4 +1,4 @@
-name: MKV to HLS (No Encoding)
+name: MKV & Mp4 to HLS (No Encoding)
 
 on:
   workflow_dispatch:  # Manual trigger
