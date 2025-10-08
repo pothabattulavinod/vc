@@ -1,0 +1,80 @@
+name: MKV to HLS (No Encoding)
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # 2. Install ffmpeg
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      # 3. Extract Telugu audio + combine with MKV video and convert to HLS
+      - name: Combine video + Telugu audio (No Encode)
+        run: |
+          # Output folder
+          OUTPUT_FOLDER="ka"
+          mkdir -p "$OUTPUT_FOLDER"
+
+          # Input URLs
+          TELUGU_MP4_URL="https://upfile04yx.uperbox.cc/68e12745e99f3-Kantara%20A%20Legend%20Chapter%201%20%282025%29%20v2%20Telugu%20DVDScr%20-%20x264%20-%20AAC%20-%20700MB.mp4?response-content-disposition=attachment%3B%20filename%3D%22Kantara%20A%20Legend%20Chapter%201%20%282025%29%20v2%20Telugu%20DVDScr%20-%20x264%20-%20AAC%20-%20700MB.mp4%22&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=61f26b6a0ca19c7868ecd7fae5f18d12%2F20251008%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20251008T074954Z&X-Amz-SignedHeaders=host&X-Amz-Expires=6000&X-Amz-Signature=05ce1750e8add0a76cb7cecfc059f10ee80381382dbe6a0dfcacf0cfa57f9137"
+          MKV_URL="https://pub-7c587286fa7043a79b976901c75583c4.r2.dev/Kantara.Chapter-1.2025.720p.V2-HDTC.Hindi-Line.x264-HDHub4u.Ms.mkv"
+
+          # Download both files (for local access)
+          wget -O telugu.mp4 "$TELUGU_MP4_URL"
+          wget -O video.mkv "$MKV_URL"
+
+          # Extract only the Telugu audio (no re-encode)
+          ffmpeg -i telugu.mp4 -vn -acodec copy telugu_audio.aac -y
+
+          # Merge MKV video + Telugu audio (no re-encode)
+          ffmpeg -i video.mkv -i telugu_audio.aac \
+                 -map 0:v:0 -map 1:a:0 \
+                 -c:v copy -c:a copy \
+                 merged.mkv -y
+
+          # Convert merged file to HLS (no encoding)
+          OUTPUT_PATH="$OUTPUT_FOLDER/playlist.m3u8"
+
+          ffmpeg -i merged.mkv \
+                 -map 0:v -map 0:a \
+                 -c:v copy -c:a copy \
+                 -f hls \
+                 -hls_time 10 \
+                 -hls_playlist_type vod \
+                 -hls_segment_filename "$OUTPUT_FOLDER/segment%03d.ts" \
+                 "$OUTPUT_PATH"
+
+          echo "✅ HLS output ready at: $OUTPUT_PATH"
+
+      # 4. Commit and push results
+      - name: Commit and push results
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global user.name "pothabattulavinod"
+          git config --global user.email "vinodyadavpothabattula666@gmail.com"
+
+          git add ka
+
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "Add HLS (Telugu audio + MKV video) [skip ci]"
+          else
+            echo "No changes to commit"
+          fi
+
+          git remote remove origin
+          git remote add origin https://x-access-token:${GH_PAT}@github.com/pothabattulavinod/vc.git
+          git push origin HEAD:main
