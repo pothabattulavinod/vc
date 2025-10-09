@@ -25,11 +25,11 @@ jobs:
       - name: Convert MKV to HLS (No Encode)
         run: |
           # Output folder
-          OUTPUT_FOLDER="premalu"
+          OUTPUT_FOLDER="war2"
           mkdir -p "$OUTPUT_FOLDER"
 
           # Input MKV URL
-          INPUT_URL="https://cdn.telugudub.store/Premalu_(2024)_Telugu_720p.mkv"
+          INPUT_URL="https://cdn.telugudub.store/War_2_(2025)_Telugu_HQ_HD_720p.mkv"
 
           # Output playlist path
           OUTPUT_PATH="$OUTPUT_FOLDER/playlist.m3u8"
@@ -54,7 +54,7 @@ jobs:
           git config --global user.name "pothabattulavinod"
           git config --global user.email "vinodyadavpothabattula666@gmail.com"
 
-          git add premalu
+          git add war2
 
           if ! git diff-index --quiet HEAD; then
             git commit -m "Add HLS copy output [skip ci]"
